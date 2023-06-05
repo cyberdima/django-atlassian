@@ -2,30 +2,28 @@
 
 from __future__ import unicode_literals
 
-import logging
+import collections
+import copy
 import importlib
 import json
-import requests
-import re
-import collections
+import logging
 import os
-import copy
-
-from django.db import models, router, connections
+import re
+import requests
 from django.conf import settings
 from django.contrib.auth.models import User
+from django.db import connections, models, router
+from django.db.models.manager import EmptyManager, Manager
 from django.db.models.signals import class_prepared
-from django.db.models.manager import Manager, EmptyManager
-
-from django_atlassian.models.connect import SecurityContext
-from django_atlassian.backends.jira.base import DatabaseConvertion
-from django_atlassian.models.fields import ArrayField
-
 from jira import JIRA
-from jira.resources import Issue as JiraIssue
 from jira.resilientsession import ResilientSession
+from jira.resources import Issue as JiraIssue
 
+from django_atlassian.backends.jira.base import DatabaseConvertion
+from django_atlassian.models.connect import SecurityContext
+from django_atlassian.models.fields import ArrayField
 from .base import JiraModel
+
 
 logger = logging.getLogger('django_atlassian')
 
@@ -60,13 +58,15 @@ class JiraManagerMixin(JIRA):
             db_alias = router.db_for_read(self.model)
             db_settings = connections.databases[db_alias]
             if db_settings.get('USER') and db_settings.get('PASSWORD'):
+
                 super(JiraManagerMixin, self).__init__(
-                        server=db_settings['NAME'],
-                        basic_auth=(
-                            db_settings['USER'],
-                            db_settings['PASSWORD']
-                        ),
-                        verify=db_settings.get('VERIFY', True)
+                    server=db_settings['NAME'],
+                    basic_auth=(
+                        db_settings['USER'],
+                        db_settings['PASSWORD']
+                    ),
+                    verify=db_settings.get('VERIFY', True),
+                    options={"headers": db_settings.get('HEADERS', {})}
                 )
             elif db_settings.get('SECURITY'):
                 jwt = {
@@ -142,7 +142,7 @@ class IssueLinkList(collections.MutableSequence):
         if index != len(self):
             raise IndexError
         body = {
-            'type': { 'name': self.link_type['name'] },
+            'type': {'name': self.link_type['name']},
         }
         if self.inward:
             body['inwardIssue'] = {'key': value.key}
@@ -218,7 +218,7 @@ class IssueLinks(object):
         response = self.db.connection.get_request(self.uri_get_all)
         if response.status_code != requests.codes.ok:
             raise AttributeError("'IssueLinks' has no attribute %s" % name)
-        
+
         content = json.loads(response.content)
         link_type = None
         inward = False
@@ -242,11 +242,12 @@ class Attachment(object):
     """
     Attachment class for jira issue
     """
+
     def __init__(self, obj, db):
         self.db = db
         for key, value in obj.iteritems():
             if isinstance(value, dict):
-               self.__init__(value, db)
+                self.__init__(value, db)
             else:
                 setattr(self, key, value)
 
@@ -260,6 +261,7 @@ class Attachment(object):
             return response.status_code
         except Exception as e:
             raise e
+
 
 class JiraIssueModel(JiraIssue):
     def __init__(self, *args, **kwargs):
@@ -289,6 +291,7 @@ class JiraIssueModel(JiraIssue):
         if jwt:
             self._session = self.__class__.jira._session
 
+
 class AtlassianMeta:
     """
     Base class for all JIRA related Meta.
@@ -305,6 +308,7 @@ class AtlassianMeta:
         # round trip to the server
         self.description = []
 
+
 class Issue(models.Model, JiraIssueModel, JiraModel):
     """
     Base class for all JIRA Issue models.
@@ -319,7 +323,7 @@ class Issue(models.Model, JiraIssueModel, JiraModel):
 
     def __init__(self, *args, **kwargs):
         super(Issue, self).__init__(*args, **kwargs)
-        #self.jira.find(self.jira_key)
+        # self.jira.find(self.jira_key)
 
     def __getattr__(self, name):
         if name == 'links':
@@ -365,7 +369,7 @@ class Issue(models.Model, JiraIssueModel, JiraModel):
             return True
         if self.parent_id is not None:
             return True
-        return False 
+        return False
 
     def get_parent(self):
         """ 
@@ -394,7 +398,7 @@ class Issue(models.Model, JiraIssueModel, JiraModel):
         """
         Get the Issue's changelog
         """
-        uri = "/rest/api/latest/issue/%(issue)s/changelog" % { 'issue': self.key }
+        uri = "/rest/api/latest/issue/%(issue)s/changelog" % {'issue': self.key}
         response = self.get_db().connection.get_request(uri)
         response.raise_for_status()
         content = json.loads(response.content)
@@ -416,7 +420,7 @@ class Issue(models.Model, JiraIssueModel, JiraModel):
         Get an url list of attached files
         """
         response = self.attachment
-        content = [  Attachment(file, self.get_db()) for file in response]
+        content = [Attachment(file, self.get_db()) for file in response]
         return content
 
     def add_attachment(self, attachment, filename=None):
@@ -433,8 +437,10 @@ class Issue(models.Model, JiraIssueModel, JiraModel):
             filename = os.path.basename(attachment.name)
 
         try:
-            response = self.get_db().connection.post_request(uri, body={}, header={'content-type': None, 'X-Atlassian-Token': 'nocheck'},
-                                                  fil={'file': (filename, attachment, 'application/octet-stream')})
+            response = self.get_db().connection.post_request(uri, body={}, header={'content-type': None,
+                                                                                   'X-Atlassian-Token': 'nocheck'},
+                                                             fil={'file': (
+                                                             filename, attachment, 'application/octet-stream')})
             return response
         except Exception as e:
             raise e
@@ -464,6 +470,7 @@ def create_model(name):
     # Create the module dynamically
     class Meta:
         pass
+
     setattr(Meta, 'app_label', 'django_atlassian')
     setattr(Meta, 'managed', False)
 
@@ -472,7 +479,7 @@ def create_model(name):
 
     # Set up a dictionary to simulate declarations within a class
     attrs = {
-        '__module__': create_model.__module__, 
+        '__module__': create_model.__module__,
         'Meta': Meta,
         'AtlassianMeta': am
     }
@@ -491,7 +498,7 @@ def populate_model(db, model):
     # Check if the description is already populated
     if am.description:
         return
-        
+
     logger.info("Populating model %s", model)
     # Create a cursor to inspect the database for the fields
     with db.cursor() as cursor:
@@ -549,15 +556,15 @@ def populate_model(db, model):
                     else None
                 )
             else:
-               try:
-                   field_type = db.introspection.get_field_type(row[1], row)
-               except KeyError:
-                   field_type = None
+                try:
+                    field_type = db.introspection.get_field_type(row[1], row)
+                except KeyError:
+                    field_type = None
 
             if field_type:
                 field_module = 'django.db.models' if '.' not in field_type else '.'.join(field_type.split('.')[:-1])
                 field_class = field_type if '.' not in field_type else field_type.split('.')[-1]
-                logger.info("Adding field '%s' for column '%s' for class '%s'", field_name, column_name, field_class) 
+                logger.info("Adding field '%s' for column '%s' for class '%s'", field_name, column_name, field_class)
                 try:
                     field_module = importlib.import_module(field_module)
                     try:
@@ -599,5 +606,5 @@ def add_fields(sender, **kwargs):
     logger.info("Class %s prepared, populating", sender)
     populate_model(connection, sender)
 
- 
+
 class_prepared.connect(add_fields)

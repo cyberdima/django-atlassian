@@ -1,23 +1,22 @@
 # -*- coding: utf-8 -*-
 from __future__ import unicode_literals
 
-from collections import namedtuple
-import requests
-import re
-import logging
 import json
-
-from django.utils.dateparse import parse_datetime
+import logging
+import re
+import requests
+from collections import namedtuple
 from django.contrib.auth import get_user_model
-
 from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.backends.base.client import BaseDatabaseClient
 from django.db.backends.base.creation import BaseDatabaseCreation
 from django.db.backends.base.features import BaseDatabaseFeatures
+from django.db.backends.base.introspection import BaseDatabaseIntrospection, FieldInfo
 from django.db.backends.base.operations import BaseDatabaseOperations
 from django.db.backends.base.schema import BaseDatabaseSchemaEditor
 from django.db.backends.base.validation import BaseDatabaseValidation
-from django.db.backends.base.introspection import BaseDatabaseIntrospection, FieldInfo
+from django.utils.dateparse import parse_datetime
+
 
 # Extend the FieldInfo to also have:
 # field_name: The model field name
@@ -34,7 +33,7 @@ class AtlassianDatabaseIntrospection(BaseDatabaseIntrospection):
 class AtlassianDatabaseConnection(object):
     session: None
 
-    def __init__(self, uri, user, password, sc, verify=True):
+    def __init__(self, uri, user, password, sc, verify=True, headers=None):
         self.uri = uri
         self.user = user
         self.password = password
@@ -42,6 +41,9 @@ class AtlassianDatabaseConnection(object):
         self.session = requests.session()
         self.session.verify = verify
         self.session.auth = (self.user, self.password)
+        if headers:
+            self.session.headers = requests.utils.default_headers()
+            self.session.headers.update(headers)
 
     def rollback(self):
         return True
@@ -242,9 +244,9 @@ class AtlassianDatabaseCursor(object):
         self.raw_fields = None
 
     def execute(self, sql, params=None):
-        #print "EXECUTE %s" % sql
-        #print params
-        #print "DONE EXECUTE"
+        # print "EXECUTE %s" % sql
+        # print params
+        # print "DONE EXECUTE"
 
         opts = {}
         new_params = []
@@ -252,7 +254,7 @@ class AtlassianDatabaseCursor(object):
         if params:
             for i in params:
                 if type(i) == dict:
-                    opts.update (i)
+                    opts.update(i)
                 else:
                     new_params.extend([i])
 
@@ -349,7 +351,8 @@ class AtlassianDatabaseCursor(object):
                     editable = f['name'] not in self.db.introspection.columns_read_only
                 choices = f.get('choices', None)
 
-                ret.append(FieldInfo(f['clauseNames'][0], schema, None, None, None, None, True, None, self.__normalize_field_name(f['name']), f['id'], array_type, editable, choices))
+                ret.append(FieldInfo(f['clauseNames'][0], schema, None, None, None, None, True, None,
+                                     self.__normalize_field_name(f['name']), f['id'], array_type, editable, choices))
         return ret
 
     def get_sql_qs(self, sql):
@@ -412,8 +415,9 @@ class AtlassianDatabaseWrapper(BaseDatabaseWrapper):
             raise NotImplementedError('missing connection class attribute')
 
         return self.connection_class(self.settings_dict['NAME'],
-                self.settings_dict['USER'], self.settings_dict['PASSWORD'],
-                self.settings_dict['SECURITY'], verify=self.settings_dict.get('VERIFY'))
+                                     self.settings_dict['USER'], self.settings_dict['PASSWORD'],
+                                     self.settings_dict['SECURITY'], verify=self.settings_dict.get('VERIFY'),
+                                     headers=self.settings_dict['HEADERS'])
 
     def get_new_connection(self, conn_params):
         return conn_params
@@ -421,7 +425,7 @@ class AtlassianDatabaseWrapper(BaseDatabaseWrapper):
     def create_cursor(self, name=None):
         if not self.cursor_class:
             raise NotImplementedError('missing cursor class attribute')
-        return self.cursor_class (self.connection, self)
+        return self.cursor_class(self.connection, self)
 
     def close(self):
         self.connection = None
@@ -431,4 +435,3 @@ class AtlassianDatabaseWrapper(BaseDatabaseWrapper):
 
     def _set_autocommit(self, autocommit):
         pass
-
