@@ -352,7 +352,7 @@ class AtlassianDatabaseCursor(object):
                 choices = f.get('choices', None)
 
                 ret.append(FieldInfo(f['clauseNames'][0], schema, None, None, None, None, True, None,
-                                     self.__normalize_field_name(f['name']), f['id'], array_type, editable, choices))
+                                     self.__normalize_field_name(f['name']), f['id'], array_type, editable, choices, None))
         return ret
 
     def get_sql_qs(self, sql):
