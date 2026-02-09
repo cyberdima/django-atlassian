@@ -65,8 +65,10 @@ class JiraManagerMixin(JIRA):
                         db_settings['USER'],
                         db_settings['PASSWORD']
                     ),
-                    verify=db_settings.get('VERIFY', True),
-                    options={"headers": db_settings.get('HEADERS', {})}
+                    options={
+                        "headers": db_settings.get('HEADERS', {}),
+                        "verify": db_settings.get('VERIFY', True),
+                    }
                 )
             elif db_settings.get('SECURITY'):
                 jwt = {
